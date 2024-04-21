@@ -3,10 +3,10 @@
 Made using R shiny
 
 Features
-    Home (Landing Page)
-    Buyers
-    Overview
-    Time Based Analysis
+    Home (Landing Page)  
+    Buyers  
+    Overview  
+    Time Based Analysis  
 
 Data used is semi-fictional
 
