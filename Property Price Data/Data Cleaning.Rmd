@@ -1,0 +1,647 @@
+---
+title: "house pricing"
+output: html_document
+date: "2024-04-14"
+---
+
+```{r}
+library(dplyr)
+library(zoo)
+library(stringr)
+ApartmentCondo_1 <- read.csv("Apartment & Condo_1.csv")
+ApartmentCondo_2 <- read.csv("Apartment & Condo_2.csv")
+ApartmentCondo_3 <- read.csv("Apartment & Condo_3.csv")
+ApartmentCondo_4 <- read.csv("Apartment & Condo_4.csv")
+Strata <- read.csv("Strata.csv")
+ExecutiveCondo <- read.csv("executive condo.csv")
+Landed <- read.csv("Landed.csv")
+PublicHousing <- read.csv("public housing.csv")
+ApartmentCondo <- rbind(ApartmentCondo_1, ApartmentCondo_2, ApartmentCondo_3, ApartmentCondo_4)
+```
+
+
+```{r}
+# Add a new column to the combined dataset
+ApartmentCondo <- ApartmentCondo %>%
+  mutate(`Type of housing` = factor("Apartment & Condo"))
+Strata <- Strata %>%
+  mutate(`Type of housing` = factor("Strata"))
+ExecutiveCondo <- ExecutiveCondo %>%
+  mutate(`Type of housing` = factor("Executive Condo"))
+Landed <- Landed %>%
+  mutate(`Type of housing` = factor("Landed"))
+PublicHousing <- PublicHousing %>%
+  mutate(`Type of housing` = factor("Public Housing"))
+# Combine the datasets into one called PrivateHousing
+PrivateHousing <- rbind(Landed, ExecutiveCondo, Strata, ApartmentCondo)
+```
+
+```{r}
+# Use SQM for area only
+# PrivateHousing$Area..SQFT. <- NULL
+# PrivateHousing$Unit.Price....PSF. <- NULL
+# Remove symbols and convert to numeric
+PrivateHousing$Transacted.Price.... <- as.numeric(gsub(",", "", PrivateHousing$Transacted.Price.... , fixed = TRUE))
+PrivateHousing$Area..SQM. <- as.numeric(gsub(",", "", PrivateHousing$Area..SQM., fixed = TRUE))
+PrivateHousing$Area..SQFT. <- as.numeric(gsub(",", "", PrivateHousing$Area..SQFT., fixed = TRUE))
+PrivateHousing$Unit.Price....PSM. <- as.numeric(gsub(",", "", PrivateHousing$Unit.Price....PSM., fixed = TRUE))
+
+# Convert Sale.Date column to YYYY-MM format
+PrivateHousing$Sale.Date <- as.yearmon(PrivateHousing$Sale.Date, format = "%b-%y")
+
+# Format Sale.Date as character in YYYY-MM format
+PrivateHousing$Sale.Date <- format(PrivateHousing$Sale.Date, "%Y-%m")
+```
+
+HDB no of rooms
+```{r}
+# Create a new function to determine the number of bedrooms based on flat type
+get_bedrooms <- function(flat_type) {
+  if (flat_type == "1 ROOM") {
+    return(1)
+  } else if (flat_type == "2 ROOM") {
+    return(1)
+  } else if (flat_type %in% c("3 ROOM", "4 ROOM")) {
+    return(as.numeric(substr(flat_type, 1, 1)))
+  } else if (flat_type == "5 ROOM") {
+    return(3) # Assuming 5 ROOM has 3 bedrooms
+  } else if (flat_type == "EXECUTIVE") {
+    return(3) # Assuming EXECUTIVE has 3 bedrooms
+  } else if (flat_type == "MULTI-GENERATION") {
+    return(4) # Assuming MULTI-GENERATION has 4 bedrooms
+  } else {
+    return(NA)
+  }
+}
+
+# Create a new function to determine the number of bathrooms based on flat type
+get_bathrooms <- function(flat_type) {
+  if (flat_type %in% c("1 ROOM", "2 ROOM", "3 ROOM")) {
+    return(1)
+  } else if (flat_type %in% c("4 ROOM", "5 ROOM", "EXECUTIVE")) {
+    return(2) # 1 common bathroom + 1 attached bathroom
+  } else if (flat_type == "MULTI-GENERATION") {
+    return(3) # 1 common bathroom + 2 attached bathrooms
+  } else {
+    return(NA)
+  }
+}
+# Assuming all flat types have one living room and one kitchen
+get_living_rooms <- function(flat_type) {
+  return(1)
+}
+
+get_kitchens <- function(flat_type) {
+  return(1)
+}
+
+# Apply the functions to the dataframe to create new columns 
+PublicHousing$`No of Bedrooms` <- sapply(PublicHousing$flat_type, get_bedrooms)
+PublicHousing$`No of Bathrooms` <- sapply(PublicHousing$flat_type, get_bathrooms)
+PublicHousing$`No of Living Rooms` <- sapply(PublicHousing$flat_type, get_living_rooms)
+PublicHousing$`No of Kitchens` <- sapply(PublicHousing$flat_type, get_kitchens)
+PublicHousing$`No of Multi-Purpose Rooms` <- 0
+# Check the first few rows to confirm
+head(PublicHousing)
+```
+
+private housing no of rooms
+```{r}
+# Define a function to calculate the number of bedrooms based on area
+get_bedrooms <- function(area) {
+  if (area <= 700) {
+    return(1)
+  } else if (area <= 1200) {
+    return(2)
+  } else if (area <= 1500) {
+    return(3)
+  } else {
+    # For every additional 500 sqft over 1500, add a bedroom up to a max of 5
+    return(min(5, 3 + ceiling((area - 1500) / 500)))
+  }
+}
+
+# Define a function to calculate the number of multi-purpose rooms based on area
+get_multi_purpose_rooms <- function(area) {
+  # For areas that allow for more than 5 bedrooms, allocate excess to multi-purpose rooms
+  if (area > 3500) { # Beyond 1500 sqft + 2000 sqft for 4 extra bedrooms
+    return(ceiling((area - 3500) / 500))
+  } else {
+    return(0)
+  }
+}
+
+# Define a function to calculate the number of bathrooms based on bedrooms
+get_bathrooms <- function(bedrooms) {
+  if (!is.numeric(bedrooms)) { return(NA) } # Check if bedrooms is numeric
+  if (bedrooms <= 2) {
+    return(1)
+  } else if (bedrooms <= 4) {
+    return(2)
+  } else {
+    return(3)
+  }
+}
+
+# Apply the functions to the dataframe to create new columns
+PrivateHousing$`No of Bedrooms` <- sapply(PrivateHousing$Area..SQFT., get_bedrooms, USE.NAMES = FALSE)
+PrivateHousing$`No of Multi-Purpose Rooms` <- sapply(PrivateHousing$Area..SQFT., get_multi_purpose_rooms, USE.NAMES = FALSE)
+PrivateHousing$`No of Bathrooms` <- sapply(PrivateHousing$`No of Bedrooms`, get_bathrooms, USE.NAMES = FALSE)
+# Assuming each condo has one kitchen and one living room
+PrivateHousing$`No of Kitchens` <- 1
+PrivateHousing$`No of Living Rooms` <- 1
+
+# Check the first few rows to confirm
+head(PrivateHousing)
+```
+
+```{r}
+# Rename 'Transacted Price' to 'Resale Price' in the PrivateHousing dataframe
+names(PrivateHousing)[names(PrivateHousing) == "Transacted.Price...."] <- "resale_price"
+```
+
+```{r}
+# Function to extract the lease commencement year from the Tenure string
+extract_lease_commence_year <- function(tenure) {
+  if (grepl("lease commencing from", tenure)) {
+    # Extract year if present
+    return(as.numeric(sub(".*lease commencing from (\\d{4}).*", "\\1", tenure)))
+  } else if (tenure == "Freehold") {
+    return(NA)  # Freehold means the lease does not expire
+  } else {
+    return(NA)  # If the lease year is not found or in an unrecognized format
+  }
+}
+
+# Function to calculate the remaining lease
+calculate_remaining_lease <- function(lease_commence_year, lease_duration) {
+  current_year <- 2024  # Assuming the current year is 2024
+  if (!is.na(lease_commence_year) && !is.na(lease_duration)) {
+    # Subtract the current year from the sum of lease commencement year and lease duration
+    remaining_lease <- lease_commence_year + lease_duration - current_year
+    return(ifelse(remaining_lease < 0, 0, remaining_lease))  # Ensure that remaining lease is not negative
+  } else {
+    return(NA)  # If the lease commencement year or duration is not available
+  }
+}
+
+# Apply the functions to create new columns
+PrivateHousing$`Lease Commence Year` <- sapply(PrivateHousing$Tenure, extract_lease_commence_year)
+
+# We need to extract lease duration as a separate step
+PrivateHousing$`Lease Duration` <- ifelse(grepl("yrs lease commencing from", PrivateHousing$Tenure),
+                                           as.numeric(sub("^(\\d+) yrs lease commencing from.*", "\\1", PrivateHousing$Tenure)),
+                                           NA)
+
+# Now we can calculate the remaining lease
+PrivateHousing$`Remaining Lease` <- mapply(calculate_remaining_lease,
+                                            PrivateHousing$`Lease Commence Year`,
+                                            PrivateHousing$`Lease Duration`)
+
+# Check the first few rows to confirm
+head(PrivateHousing)
+```
+
+```{r}
+# Change the column name from "month" to "Sale.Date"
+colnames(PublicHousing)[colnames(PublicHousing) == "month"] <- "Sale.Date"
+# Change the column name from "street_name" to "Street.Name"
+colnames(PublicHousing)[colnames(PublicHousing) == "street_name"] <- "Street.Name"
+# Change the column name from "floor_area_sqm" to "Area..SQM."
+colnames(PublicHousing)[colnames(PublicHousing) == "floor_area_sqm"] <- "Area..SQM."
+# Change the column name from "lease_commence_date" to "Lease Commence Year"
+colnames(PublicHousing)[colnames(PublicHousing) == "lease_commence_date"] <- "Lease Commence Year"
+
+
+# Add a new column called "Project.Name" with all values as "HDB"
+PublicHousing <- PublicHousing %>%
+  mutate(Project.Name = factor("HDB"))
+
+# Create the new column "Property.Type"
+PublicHousing <- PublicHousing %>%
+  mutate(Property.Type = paste(flat_model, "HDB", sep = " "))
+
+# Create the new column "Unit.Price....PSM."
+PublicHousing$Unit.Price....PSM. <- PublicHousing$resale_price / PublicHousing$Area..SQM.
+
+# Create the new column "Type.of.Area"
+PublicHousing$Type.of.Area <- "Non"
+```
+convert remaining lease to numeric values
+```{r}
+# Extract years and months using regular expressions
+years <- as.numeric(str_extract(PublicHousing$remaining_lease, "\\d+(?=\\s+years)"))
+months <- as.numeric(str_extract(PublicHousing$remaining_lease, "\\d+(?=\\s+months)"))
+
+# Convert to years with decimals
+remaining_lease_years <- ifelse(is.na(months), years, years + months / 12)
+
+# Replace the "remaining_lease" column with the converted values
+PublicHousing$remaining_lease <- remaining_lease_years
+
+# Change the column name from "remaining_lease" to "Remaining Lease"
+colnames(PublicHousing)[colnames(PublicHousing) == "remaining_lease"] <- "Remaining Lease"
+```
+find market segment according to town for HDB
+```{r}
+# Convert "town" column to lowercase
+PublicHousing$town <- tolower(PublicHousing$town)
+
+# Define the relationship between towns and postal districts
+postal_districts <- tribble(
+  ~town, ~Postal.District,
+  "raffles place", "01",
+  "cecil", "01",
+  "marina", "01",
+  "people's park", "01",
+  "anson", "02",
+  "tanjong pagar", "02",
+  "queenstown", "03",
+  "tiong bahru", "03",
+  "bukit merah","03",
+  "telok blangah", "04",
+  "harbourfront", "04",
+  "pasir panjang", "05",
+  "hong leong garden", "05",
+  "clementi", "05",
+  "high street", "06",
+  "beach road", "06",
+  "middle road", "07",
+  "golden mile", "07",
+  "little india", "08",
+  "orchard", "09",
+  "cairnhill", "09",
+  "river valley", "09",
+  "ardmore", "10",
+  "bukit timah", "10",
+  "holland road", "10",
+  "tanglin", "10",
+  "watten estate", "11",
+  "novena", "11",
+  "thomson", "11",
+  "balestier", "12",
+  "toa payoh", "12",
+  "serangoon","12",
+  "macpherson", "13",
+  "braddell", "13",
+  "geylang", "14",
+  "eunos", "14",
+  "katong", "15",
+  "joo chiat", "15",
+  "amber road", "15",
+  "marine parade","15",
+  "bedok", "16",
+  "upper east coast", "16",
+  "eastwood", "16",
+  "kew drive", "16",
+  "loyang", "17",
+  "changi", "17",
+  "tampines", "18",
+  "pasir ris", "18",
+  "serangoon garden", "19",
+  "hougang", "19",
+  "punggol", "19",
+  "sengkang","19",
+  "bishan", "20",
+  "ang mo kio", "20",
+  "upper bukit timah", "21",
+  "clementi park", "21",
+  "ulu pandan", "21",
+  "jurong", "22",
+  "jurong east","22",
+  "jurong west","22",
+  "hillview", "23",
+  "dairy farm", "23",
+  "bukit panjang", "23",
+  "bukit batok","23",
+  "choa chu kang", "23",
+  "lim chu kang", "24",
+  "tengah", "24",
+  "kranji", "25",
+  "woodgrove", "25",
+  "woodlands","25",
+  "upper thomson", "26",
+  "springleaf", "26",
+  "yishun", "27",
+  "sembawang", "27",
+  "seletar", "28"
+)
+
+# Convert "town" column in postal_districts to lowercase
+postal_districts$town <- tolower(postal_districts$town)
+
+# Create the new column "Postal.District" based on town
+PublicHousing <- left_join(PublicHousing, postal_districts, by = "town")
+
+# Set the seed for reproducibility
+set.seed(123)
+
+# Define the postal districts to choose from
+postal_districts <- c("01", "07", "12", "13", "14", "15")
+
+# Update Postal.District based on the condition
+PublicHousing$Postal.District <- ifelse(PublicHousing$town == "kallang/whampoa",
+                                        sample(postal_districts, size = sum(PublicHousing$town == "kallang/whampoa"), replace = TRUE),
+                                        PublicHousing$Postal.District)
+# Define Postal District options for "central area"
+central_area_postal_districts <- c("01", "02", "06", "07", "09", "10", "11")
+
+# Replace NA values in Postal.District column based on condition
+PublicHousing$Postal.District <- ifelse(PublicHousing$town == "central area",
+                                        sample(central_area_postal_districts, size = sum(PublicHousing$town == "central area"), replace = TRUE),
+                                        PublicHousing$Postal.District)
+
+```
+
+```{r}
+# Convert "town" column to lowercase
+PublicHousing$town <- tolower(PublicHousing$town)
+
+# Define the relationship between Market.Segment and town
+market_segment <- tribble(
+  ~town, ~Market.Segment,
+  "orchard", "Core Central Region",
+  "somerset", "Core Central Region",
+  "river valley", "Core Central Region",
+  "tanglin", "Core Central Region",
+  "bukit timah", "Core Central Region",
+  "holland", "Core Central Region",
+  "newton", "Core Central Region",
+  "novena", "Core Central Region",
+  "dunearn", "Core Central Region",
+  "watten", "Core Central Region",
+  "boat quay", "Downtown Core",
+  "raffles place", "Downtown Core",
+  "marina downtown", "Downtown Core",
+  "suntec city", "Downtown Core",
+  "shenton way", "Downtown Core",
+  "tanjong pagar", "Downtown Core",
+  "city hall", "Downtown Core",
+  "bugis", "Downtown Core",
+  "marina south", "Rest of Central Region",
+  "chinatown", "Rest of Central Region",
+  "queenstown", "Rest of Central Region",
+  "alexandra", "Rest of Central Region",
+  "serangoon","Rest of Central Region",
+  "tiong bahru", "Rest of Central Region",
+  "harbourfront", "Rest of Central Region",
+  "keppel", "Rest of Central Region",
+  "telok blangah", "Rest of Central Region",
+  "buona vista", "Rest of Central Region",
+  "dover", "Rest of Central Region",
+  "pasir panjang", "Rest of Central Region",
+  "fort canning", "Rest of Central Region",
+  "rochor", "Rest of Central Region",
+  "little india", "Rest of Central Region",
+  "farrer park", "Rest of Central Region",
+  "balestier", "Rest of Central Region",
+  "whampoa", "Rest of Central Region",
+  "toa payoh", "Rest of Central Region",
+  "boon keng", "Rest of Central Region",
+  "bendemeer", "Rest of Central Region",
+  "bukit merah","Rest of Central Region",
+  "kampong bugis", "Rest of Central Region",
+  "potong pasir", "Rest of Central Region",
+  "bidadari", "Rest of Central Region",
+  "macpherson", "Rest of Central Region",
+  "upper aljunied", "Rest of Central Region",
+  "geylang", "Rest of Central Region",
+  "dakota", "Rest of Central Region",
+  "paya lebar", "Rest of Central Region",
+  "eunos", "Rest of Central Region",
+  "ubi", "Rest of Central Region",
+  "aljunied", "Rest of Central Region",
+  "tanjong rhu", "Rest of Central Region",
+  "amber", "Rest of Central Region",
+  "meyer", "Rest of Central Region",
+  "katong", "Rest of Central Region",
+  "dunman", "Rest of Central Region",
+  "joo chiat", "Rest of Central Region",
+  "marine parade", "Rest of Central Region",
+  "bishan", "Rest of Central Region",
+  "thomson", "Rest of Central Region",
+  "clementi", "Outside Central Region",
+  "west coast", "Outside Central Region",
+  "kembangan", "Outside Central Region",
+  "kaki bukit", "Outside Central Region",
+  "telok kurau", "Outside Central Region",
+  "siglap", "Outside Central Region",
+  "frankel", "Outside Central Region",
+  "bedok", "Outside Central Region",
+  "upper east coast", "Outside Central Region",
+  "bayshore", "Outside Central Region",
+  "tanah merah", "Outside Central Region",
+  "upper changi", "Outside Central Region",
+  "flora drive", "Outside Central Region",
+  "loyang", "Outside Central Region",
+  "changi", "Outside Central Region",
+  "tampines", "Outside Central Region",
+  "pasir ris", "Outside Central Region",
+  "punggol", "Outside Central Region",
+  "sengkang", "Outside Central Region",
+  "hougang", "Outside Central Region",
+  "kovan", "Outside Central Region",
+  "serangoon", "Outside Central Region",
+  "lorong ah soo", "Outside Central Region",
+  "ang mo kio", "Outside Central Region",
+  "upper bukit timah", "Outside Central Region",
+  "ulu pandan", "Outside Central Region",
+  "clementi park", "Outside Central Region",
+  "jurong east", "Outside Central Region",
+  "jurong west", "Outside Central Region",
+  "boon lay", "Outside Central Region",
+  "hillview", "Outside Central Region",
+  "bukit panjang", "Outside Central Region",
+  "bukit batok", "Outside Central Region",
+  "choa chu kang", "Outside Central Region",
+  "kranji", "Outside Central Region",
+  "lim chu kang", "Outside Central Region",
+  "sungei gedong", "Outside Central Region",
+  "tengah", "Outside Central Region",
+  "woodlands", "Outside Central Region",
+  "admiralty", "Outside Central Region",
+  "lentor", "Outside Central Region",
+  "springleaf", "Outside Central Region",
+  "mandai", "Outside Central Region",
+  "yishun", "Outside Central Region",
+  "sembawang", "Outside Central Region",
+  "seletar", "Outside Central Region",
+  "seletar hill", "Outside Central Region",
+  "sengkang west", "Outside Central Region",
+  "sengkang","Outside Central Region",
+  "sengkang", "Outside Central Region"
+)
+
+# Convert "town" column in market_segment to lowercase
+market_segment$town <- tolower(market_segment$town)
+
+# Create the new column "Market.Segment" in PublicHousing based on town
+PublicHousing$Market.Segment <- market_segment$Market.Segment[match(PublicHousing$town, market_segment$town)]
+
+# Define Market Segment options for "central area"
+central_area_market_segments <- c("Rest of Central Region", "Core Central Region")
+
+# Replace NA values in Market.Segment column based on condition
+PublicHousing$Market.Segment <- ifelse(PublicHousing$town == "central area",
+                                       sample(central_area_market_segments, size = sum(PublicHousing$town == "central area"), replace = TRUE),
+                                       PublicHousing$Market.Segment)
+# Define the market segments to choose from
+kallang_market_segments <- c("Rest of Central Region", "Downtown Core", "Outside Central Region", "Core Central Region")
+
+# Update Market.Segment based on the condition
+PublicHousing$Market.Segment <- ifelse(PublicHousing$town == "kallang/whampoa",
+                                       sample(kallang_market_segments, size = sum(PublicHousing$town == "kallang/whampoa"), replace = TRUE),
+                                       PublicHousing$Market.Segment)
+```
+
+change floor level interval
+```{r}
+# Generate random numbers for each range of 3 storeys
+set.seed(123)  # Set seed for reproducibility
+PublicHousing$Random_Number <- sample(1:3, nrow(PublicHousing), replace = TRUE)
+
+# Define a function to transform storey range
+transform_storey_range <- function(storey_range, random_number) {
+  # Extract lower and upper bounds of the range
+  range_values <- as.numeric(strsplit(storey_range, " TO ")[[1]])
+  lower <- range_values[1]
+  upper <- range_values[2]
+  
+  # Determine the lower and upper bounds of the new range
+  new_lower <- floor((lower - 1) / 5) * 5 + 1
+  new_upper <- new_lower +4
+  
+  # Construct the new storey range
+  new_range <- paste(new_lower, "to", new_upper)
+  
+  return(new_range)
+}
+
+# Apply the function to transform the storey range column
+PublicHousing$storey_range <- mapply(transform_storey_range, 
+                                     PublicHousing$storey_range, 
+                                     PublicHousing$Random_Number)
+PublicHousing$storey_range <- as.factor(PublicHousing$storey_range)
+# Change the column name from "storey_range" to "Floor.Level"
+colnames(PublicHousing)[colnames(PublicHousing) == "storey_range"] <- "Floor.Level"
+
+```
+
+```{r}
+# List of common columns
+common_columns <- c("Project.Name", "resale_price", "Sale.Date", "Street.Name", "Type.of.Area", "Area..SQM.", "Unit.Price....PSM.", "Property.Type", "Postal.District", "Market.Segment", "Floor.Level", "Type of housing", "No of Bedrooms", "No of Multi-Purpose Rooms", "No of Bathrooms", "No of Kitchens", "No of Living Rooms", "Lease Commence Year", "Remaining Lease")
+
+# Merge based on common columns
+merged_data <- merge(PublicHousing[common_columns], PrivateHousing[common_columns], by = common_columns, all = TRUE)
+```
+
+
+```{r}
+names(merged_data) <-c("Project Name","Resale Price","Sale Month","Street Name","Type of Area","Area in SQM","Unit Price in PSM","Property Type","Postal District","Market Segment","Floor Level","Type of Housing","No of Bedrooms","No of Multi-Purpose Room","No of Bathrooms","No of Kitchens","No of Living Rooms","Lease Commence Year","Remaining Lease in Years")
+```
+
+```{r}
+# Create the breaks for the price categories
+breaks <- c(0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 
+            1000000, 1250000, 1500000, 2000000, 2500000, 3000000, 4000000, 5000000, 
+            10000000, 15000000, 20000000, 30000000, 40000000, 50000000, 100000000, 
+            150000000, 200000000, Inf)
+labels <- c("0-100k", "100k-200k", "200k-300k", "300k-400k", "400k-500k", "500k-600k", 
+            "600k-700k", "700k-800k", "800k-900k", "900k-1m", "1m-1.25m", "1.25m-1.5m", 
+            "1.5m-2m", "2m-2.5m", "2.5m-3m", "3m-4m", "4m-5m", "5m-10m", "10m-15m", 
+            "15m-20m", "20m-30m", "30m-40m", "40m-50m", "50m-100m", "100m-150m", 
+            "150m-200m", "200m+")
+
+# Use the cut function to create the categorical variable
+merged_data$Resale_Price_Category <- cut(merged_data$`Resale Price`, breaks = breaks, labels = labels, right = FALSE)
+```
+
+```{r}
+# Define the breaks for different categories
+breaks <- c(-Inf, 10, 20, 30, 40, 50, 70, 100, Inf)
+
+# Define the labels for the categories
+labels <- c("0-10", "10-20", "20-30", "30-40", "40-50", "50-70", "70-100", "100+")
+
+# Create a new column with categories
+merged_data$Remaining_Lease_Category <- cut(merged_data$`Remaining Lease in Years`, breaks = breaks, labels = labels, include.lowest = TRUE)
+```
+
+```{r}
+#copy for safety
+my_data=merged_data
+```
+
+# WARNING this part uses the google API and may incurr costs if run repeatedely 
+## we have attached the lookup files cached data to avoid re-running the geocode
+
+```{r}
+#code to get at long data for Landed
+landed <- my_data[my_data$Property.Type %in% c("Terrace House", "Semi-Detached House", "Detached House"), ]
+
+landed_lookup <- data.frame(unique(landed$Address))
+latlong<-geocode(landed_lookup$unique.landed.Address.)
+landed_lookup <-cbind(landed_lookup,latlong)
+colnames(landed_lookup)[1]<- "Address"
+
+#additional specific cleaning
+# Assuming your dataframe is called 'my_data'
+row_index <- which(landed_lookup$Address == "LAUW & SONS GARDEN, BINCHANG RISE, Singapore")
+landed_lookup$lat[row_index] <- 1.349
+landed_lookup$lon[row_index] <- 103.845
+row_index <- which(landed_lookup$Address == "LAUW & SONS GARDEN, CLOVER CLOSE, Singapore")
+landed_lookup$lat[row_index] <- 	1.349
+landed_lookup$lon[row_index] <- 103.845
+
+#save data in csv to avoid repeated use of geocode
+write.csv(landed_lookup,"landed_lookup.csv")
+#we will have to merge this by "Address"
+```
+
+```{r}
+#code to get at long data for HDB
+HDB <- my_data[my_data$Project.Name == "HDB", ]
+HDB_lookup <- data.frame(unique(HDB$unique.HDB.Address))
+latlong<-geocode(HDB_lookup$unique.HDB.Address)
+HDB_lookup <-cbind(HDB_lookup,latlong)
+colnames(HDB_lookup)[1]<- "Street.Name"
+#save data in csv to avoid repeated use of geocode
+write.csv(landed_lookup,"HDB_lookup.csv")
+
+#we will have to merge by Street.Name
+```
+
+```{r}
+#code to get at long data for Apartments
+condo <- my_data[my_data$Property.Type %in% c("Apartment","Condominium","Executive Condominium"), ]
+condo_lookup <- data.frame(unique(condo$Project.Name))
+latlong<-geocode(condo_lookup$unique.condo.Project.Name.)
+condo_lookup <-cbind(condo_lookup,latlong)
+colnames(condo_lookup)[1]<- "Project.Name"
+#save data in csv to avoid repeated use of geocode
+write.csv(condo_lookup,"apartment_lookup.csv")
+```
+
+```{r}
+#merge HDB
+merged <- merge(my_data, HDB_lookup, by = "Street.Name", all.x = TRUE)
+
+#merge aparments and condos
+merged <- merge(x = merged, y = apartment_lookup, by = "Project.Name", all.x = TRUE)
+
+#merge Landed
+merged <- merge(x = merged, y = landed_lookup, by = "Address", all.x = TRUE)
+
+# Create a new column 'combined_lat' by coalescing the latitude columns
+my_data$combined_lat <- coalesce(my_data$lat, my_data$lat.1, my_data$lat.2)
+
+# Create a new column 'combined_lon' by coalescing the longitude columns
+my_data$combined_lon <- coalesce(my_data$lon, my_data$lon.1, my_data$lon.2)
+
+# Remove rows with NA values in both 'combined_lat' and 'combined_lon'
+my_data <- my_data[complete.cases(my_data$combined_lat, my_data$combined_lon), ]
+
+
+write.csv(merged, "Final_Dataset.csv")
+```
+

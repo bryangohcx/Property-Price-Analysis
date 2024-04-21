@@ -1,0 +1,55 @@
+---
+title: "Supplementary Cleaning"
+output: html_document
+date: "2024-04-21"
+---
+
+```{r , include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+Sample_Data <- read.csv("./Property Price Data/sample.csv")
+Final_Data <- read.csv("./Property Price Data/Final_Dataset.csv")
+```
+
+```{r rewrite, inclue=FALSE}
+#ENSURE CHANGES ARE CORRECT BEFORE RUNNING THIS !!!
+write.csv(Final_Data,"./Property Price Data/Final_Dataset.csv")
+write.csv(Sample_Data,"./Property Price Data/sample.csv")
+```
+
+```{r}
+shinyApp(ui = source("ui.R")$value, server = source("server.R")$value)
+```
+
+```{r debugging}
+head(Final_Data)
+Sample_Data$Sale.Month <- as.Date(paste(Sample_Data$Sale.Month, "-01", sep = ""))
+Final_Data["Type.of.Housing"]%>%unique()
+
+```
+Apartment & Condo   Executive Condo            Landed    Public Housing            Strata   Total
+            40000              6337              5574             87304               968   140183
+            
+SAMPLE
+            285               45                40                600                 7
+```{r}
+
+Sample_Data <- Final_Data[sample(nrow(Final_Data), size = 1000), ]
+library(dplyr)
+
+Sample_Data <- Sample_Data %>%
+    mutate(
+        location = case_when(
+            lat > 1.39 ~ "North",  # Adjusted north boundary
+            lon > 103.85 ~ "East",  # Adjusted east boundary
+            lat < 1.32 ~ "South",   # Adjusted south boundary
+            lon < 103.8 ~ "West",   # Adjusted west boundary
+            TRUE ~ "Central"
+        )
+    )
+Sample_Data$location%>%table()
+```
+
+```{r}
+Final_Data$Market.Segment%>%table()
+```
