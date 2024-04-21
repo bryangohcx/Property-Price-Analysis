@@ -1,4 +1,4 @@
-# Project done for DBA3702 Descriptive Analytics in R
+# Project for DBA3702 Descriptive Analytics in R
 
 Made using R shiny
 
